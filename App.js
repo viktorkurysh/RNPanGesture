@@ -22,38 +22,37 @@ import Animated, {
   decay,
   stopClock,
   Clock,
+  spring,
 } from 'react-native-reanimated';
-import {onGestureEvent} from 'react-native-redash/lib/module/v1';
+import {onGestureEvent, clamp} from 'react-native-redash/lib/module/v1';
 
 const {width, height} = Dimensions.get('screen');
 const cardWidth = 0.84 * width;
 const cardHeight = 0.67 * cardWidth;
 
-// function withOffset(value, state, offset) {
-//   return cond(
-//     eq(state, State.END),
-//     [set(offset, add(offset, value)), offset],
-//     add(offset, value),
-//   );
-// }
-
-function withDecay(value, gestureState, offset, velocity) {
+function withSpring(value, velocity, gestureState, offset, snapPoint) {
   const clock = new Clock();
   const state = {
     finished: new Value(0),
-    velocity,
+    velocity: new Value(0),
     position: new Value(0),
     time: new Value(0),
   };
   const config = {
-    deceleration: 0.998,
+    damping: 10,
+    mass: 1,
+    stiffness: 100,
+    overshootClamping: false,
+    restSpeedThreshold: 0.001,
+    restDisplacementThreshold: 0.001,
+    toValue: snapPoint,
   };
 
-  const decayIsInterrupted = eq(gestureState, State.BEGAN);
-  const finishDecay = [set(offset, state.position), stopClock(clock)];
+  const springIsInterrupted = eq(gestureState, State.BEGAN);
+  const finishSpring = [set(offset, state.position), stopClock(clock)];
 
   return block([
-    cond(decayIsInterrupted, finishDecay),
+    cond(springIsInterrupted, finishSpring),
     cond(
       eq(gestureState, State.END),
       [
@@ -61,8 +60,8 @@ function withDecay(value, gestureState, offset, velocity) {
           set(state.time, 0),
           startClock(clock),
         ]),
-        decay(clock, state, config),
-        cond(state.finished, finishDecay),
+        spring(clock, state, config),
+        cond(state.finished, finishSpring),
       ],
       [set(state.finished, 0), set(state.position, add(offset, value))],
     ),
@@ -76,8 +75,10 @@ function App() {
   const translationY = new Value(0);
   const velocityX = new Value(0);
   const velocityY = new Value(0);
-  const offsetX = new Value((width - cardWidth) / 2);
-  const offsetY = new Value((height - cardHeight) / 2);
+  const snapX = (width - cardWidth) / 2;
+  const snapY = (height - cardHeight) / 2;
+  const offsetX = new Value(snapX);
+  const offsetY = new Value(snapY);
   const gestureHandler = onGestureEvent({
     state,
     translationX,
@@ -86,17 +87,15 @@ function App() {
     velocityY,
   });
 
-  const translateX = diffClamp(
-    withDecay(translationX, state, offsetX, velocityX),
+  const translateX = clamp(
+    withSpring(translationX, velocityX, state, offsetX, snapX),
     0,
     width - cardWidth,
-    velocityX,
   );
-  const translateY = diffClamp(
-    withDecay(translationY, state, offsetY, velocityY),
+  const translateY = clamp(
+    withSpring(translationY, velocityY, state, offsetY, snapY),
     0,
     height - cardHeight,
-    velocityY,
   );
 
   return (
